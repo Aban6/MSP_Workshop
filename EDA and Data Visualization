@@ -1,0 +1,498 @@
+# # Wells Fargo Financial Analysis
+
+# ## Import Data
+df_final = pd.read_csv("enter the name of your csv file.csv")
+
+## Data cleaning
+# Convert all text in the dataset to lowercase
+data = data.applymap(lambda x: x.lower() if isinstance(x, str) else x)
+# Remove spaces from variable names (column names)
+data.rename(columns=lambda x: x.replace(' ', '_'), inplace=True)
+#print column headers
+print(*df_final.columns, sep="\n")
+
+#show all columns and rows in Jupyter notebook
+pd.set_option('display.max_columns', None)
+pd.set_option('display.max_rows', None)
+
+#show the number of columns and rows
+df_final.shape
+
+#data cleaning: fill na cells with 0
+df_final['num_units_mf'].fillna(0)
+df_final['build_existing_model.geometry_building_number_units_sfa'].fillna(0)
+
+# Drop duplicates
+data = df_final
+data.drop_duplicates(inplace=True)
+data.shape
+
+# Handle missing values 
+# Fill missing numerical values with 0 and missing categorical values with 'Unknown'
+numerical_columns = data.select_dtypes(include=['number']).columns
+data[numerical_columns] = data[numerical_columns].fillna(0)
+
+categorical_columns = data.select_dtypes(include=['object']).columns
+data[categorical_columns] = data[categorical_columns].fillna('Unknown')
+
+#create a new column to show total number of units in a multi-family building
+df_final['num_units']=df_final['num_units_mf'] +df_final['build_existing_model.geometry_building_number_units_sfa'] 
+
+#display the first 10 rows
+df_final.head(10)
+
+# ### focus on Minneapolis data
+
+# Drop rows where 'state' is not 'MN'
+data = data[data['state'] == 'mn']
+# Drop rows where 'county' is not 'Hennepin'
+data = data[data['county'] == 'hennepin']
+# Drop rows where 'bldg_type_grouped' is 'sf'
+data = data[data['bldg_type_grouped'] != 'sf']
+
+# Correct the mistaken label only for 'multifamily with 2-4 units'
+data.loc[data['bldg_type'] == 'multifamily with 2-4 units', 'bldg_type_grouped'] = 'mf'
+
+# Correct 'unknown' to 'mf' for specific conditions
+condition = (data['bldg_type'] == 'multifamily with 5+ units, 1-3 stories') & (data['bldg_type_grouped'] == 'unknown')
+data.loc[condition, 'bldg_type_grouped'] = 'mf'
+
+
+# Get unique categories under a specific column
+column_name = 'state'  
+# Using the .unique() method
+unique_categories = data[column_name].unique()
+print(f"Unique categories under '{column_name}': {unique_categories}")
+
+# ## Data Munging
+
+#filter data based on state and focus on the county of Hennepin (Minneapolis) 
+df_ABC_MN=df_final[(df_final['state'] == 'MN')]
+df_ABC_MN_6A=df_ABC_MN[(df_ABC_MN['ashrae_iecc_climate_zone_2004']=='6A')]
+df_ABC_MN_Minneapolis=df_ABC_MN_6A[(df_ABC_MN_6A['county']=='Hennepin')]
+
+#save the dataframe as a new csv file
+df_ABC_MN_Minneapolis.to_csv('MGR_prioritization_results_full_for_Brett_Minneapolis.csv')
+
+"""
+A lambda function that formats each floating-point number x to have three decimal places and include commas as thousands separators. 
+ This is achieved using an f-string with the format specifier :,.3f.
+"""
+pd.set_option('display.float_format', lambda x: f'{x:,.3f}')
+
+
+#EDA
+# Group by column vintage and count occurrences 
+associations = data.groupby(['vintage','bldg_type']).size().reset_index(name='count')
+# Sort associations by count in descending order
+associations = associations.sort_values(by='count', ascending=False)
+# Print the associations
+print(associations)
+
+# Group by columns A and B and count occurrences of each combination
+associations = data.groupby(['bldg_type', 'bldg_type_grouped']).size().reset_index(name='count')
+# Sort associations by count in descending order
+associations = associations.sort_values(by='count', ascending=False)
+# Print the associations
+print(associations)
+
+# Get the most common building typology 
+df_ABC_MN_6A_MF.groupby('bldg_type').size().nlargest()
+
+# Get the most common package 
+df_ABC_MN_6A_MF.groupby('pkg_final_no_resilience').size().nlargest()
+
+# print all the column headers regarding "cost"
+cost_cols = [col for col in df_ABC_MN_6A_MF.columns if 'cost' in col]
+print(*cost_cols, sep="\n")
+#get the first row value of all the columns regarding "cost"
+df_ABC_MN_6A_MF[cost_cols].iloc[0]
+
+# Print all the column headers regarding "saving"
+saving_cols = [col for col in df_ABC_MN_6A_MF.columns if 'saving' in col]
+print(*saving_cols, sep="\n")
+
+# Print all the column headers regarding "energy"
+energy_cols = [col for col in df_ABC_MN_6A_MF.columns if 'energy' in col]
+print(*energy_cols, sep="\n")
+
+# Print all the column headers regarding "annual bills"
+mon_cols = [col for col in df_ABC_MN_6A_MF.columns if 'annualbill' in col]
+print(*mon_cols, sep="\n")
+
+# Print all the column headers regarding "baseline"
+baseline_cols = [col for col in df_ABC_MN_6A_MF.columns if 'baseline' in col]
+print(*baseline_cols, sep="\n")
+
+#up01:All-equipment swap out
+up01_cols = [col for col in df_ABC_MN_6A_MF.columns if 'up01' in col]
+print(*up01_cols, sep="\n")
+
+#up06:Market-Ready Envelope
+up06_cols = [col for col in df_ABC_MN_6A_MF.columns if 'up06' in col]
+print(*baseline_cols, sep="\n")
+
+#up08:PHIUS Package
+up08_cols = [col for col in df_ABC_MN_6A_MF.columns if 'up08' in col]
+print(*baseline_cols, sep="\n")
+
+#up00:Baseline
+up00_cols = [col for col in df_ABC_MN_6A_MF.columns if 'up00' in col]
+print(*baseline_cols, sep="\n")
+
+
+# ## Typology Experiments
+# Define a function to categorize 'ins_wall'
+def categorize_ins_wall(ins_wall):
+    if 'r-19' in ins_wall:
+        return 'R-19'
+    else:
+        return 'Below R-19'
+
+# Apply the function to create a new column
+data['ins_wall_category'] = data['ins_wall'].apply(categorize_ins_wall)
+
+# Select the relevant columns for the analysis
+selected_columns = ['bldg_type',  'wall_type',  'wh_fuel', 'wh_in_unit', 'hvac_type_fuel','ins_wall_category']
+
+# Group by the selected columns and count occurrences
+common_combinations = data[selected_columns].groupby(selected_columns).size().reset_index(name='count')
+
+# Sort the combinations by count in descending order
+common_combinations = common_combinations.sort_values(by='count', ascending=False)
+
+# Display the top 10 most common combinations
+print(common_combinations.head(3))
+
+get_ipython().system('pip install tabulate')
+
+from tabulate import tabulate
+
+# Create a DataFrame with the total units by building type
+total_units_df = total_units_by_type.reset_index().rename(
+    columns={'bldg_type': 'Building Type', 'num_units_mf': 'Total Units'})
+
+# Set 'bldg_type_grouped' as the index
+total_units_df.set_index('Building Type', inplace=True)
+
+# Change number format to include thousand separators
+total_units_df['Total Units'] = total_units_df['Total Units'].apply('{:,}'.format)
+
+# Convert DataFrame to a nicely formatted text table
+total_units_table = tabulate(total_units_df, headers='keys', tablefmt='grid')
+
+# Print the text table
+print(total_units_table)
+
+# Select the relevant columns for the analysis
+selected_columns = ['bldg_type', 'ins_wall', 'vintage', 'wall_type', 'wh_fuel', 'wh_in_unit', 'hvac_type_fuel']
+
+# Group by the selected columns and count occurrences
+common_combinations = data[selected_columns].groupby(selected_columns).size().reset_index(name='count')
+
+# Sort the combinations by count in descending order
+common_combinations = common_combinations.sort_values(by='count', ascending=False)
+
+# Display the top 3 most common combinations
+print(common_combinations.head(3))
+
+from itertools import combinations
+
+# Define the list of columns to consider
+all_columns = ['bldg_type', 'vintage', 'wall_type', 'wh_fuel', 'wh_in_unit', 'hvac_type_fuel', 'ins_wall_category']
+
+
+# Define a function to generate and analyze combinations
+def analyze_combinations(columns, n=2, top_n=10):
+    top_combinations = []
+
+    for combo in combinations(columns, n):
+        # Group by the combination of columns and count occurrences
+        grouped = data[list(combo)].groupby(list(combo)).size().reset_index(name='count')
+
+        # Sort the combinations by count in descending order
+        grouped = grouped.sort_values(by='count', ascending=False)
+
+        # Store the top combinations
+        top_combinations.append((list(combo), grouped.head(top_n)))
+
+    return top_combinations
+
+
+# Generate and analyze combinations of different lengths
+for length in range(2, len(all_columns) + 1):
+    top_combinations = analyze_combinations(all_columns, n=length)
+    print(f'Top combinations for {length} columns:')
+    for combo, top in top_combinations:
+        print(f'Columns: {", ".join(combo)}')
+        print(top)
+        print('-' * 30)
+
+# ## Data visulization for data exploration 
+
+# Count plots
+import matplotlib.pyplot as plt
+import seaborn as sns
+g= sns.countplot(x='bldg_type',data=df_ABC_MN_MF,hue='pkg_final_no_resilience')
+plt.xticks(rotation=90)
+
+# Pivot Table
+import numpy as np
+pivot_table = np.round(pd.pivot_table(data=df_ABC_MN_Minneapolis, values=['build_existing_model.geometry_building_number_units_mf','build_existing_model.geometry_building_number_units_sfa'], index=None, columns='bldg_type', aggfunc='sum', fill_value=None, margins=False, dropna=True, margins_name='All', observed=False, sort=True))
+pivot_table
+
+labels = 'Multifamily with 2-4 Units','Multifamily with 5+ units, 1-3 stories','Multifamily with 5+ units, 4-7 stories','Multifamily with 5+ units, 8+ stories','Single-Family Attached'
+sizes = [196.0,10010.0,8771.0,12467.0,1596.0]
+explode = (0.05, 0.05, 0.05, 0.05, 0.05)
+fig, ax = plt.subplots()
+ax.pie(sizes, explode=explode, labels=labels, autopct='%1.1f%%')
+
+# Count plots
+sns.set_style('whitegrid')
+g= sns.countplot(x='bldg_type',data=df_ABC_MN_Minneapolis, hue = 'pkg_final_no_resilience')
+sns.despine()
+plt.xticks(rotation=90)
+labels = 'Multifamily with 2-4 Units','Multifamily with 5+ units, 1-3 stories','Multifamily with 5+ units, 4-7 stories','Multifamily with 5+ units, 8+ stories','Single-Family Attached'
+sizes = [196.0,10010.0,8771.0,12467.0,1596.0]
+explode = (0.05, 0.05, 0.05, 0.05, 0.05)
+fig, ax = plt.subplots()
+ax.pie(sizes, explode=explode, labels=labels, autopct='%1.1f%%')
+
+# # Visualization
+
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
+
+sns.set_palette("Set2")  # Set the color palette to 'pastel'
+
+
+# Calculate the percentage distribution and scaled count of 'bldg_type'
+bldg_type_distribution = data['bldg_type'].value_counts()
+bldg_type_scaled_count = bldg_type_distribution * 242
+bldg_type_percentage = (bldg_type_scaled_count / bldg_type_scaled_count.sum()) * 100
+
+# Define a range of colors including shades of orange, blue, and gray
+colors = ['#FF6F00', '#FFA726', '#FFCC80', '#1976D2', '#64B5F6', '#B0BEC5', '#616161']
+
+# Create a pie chart with legend and explosion
+plt.figure(figsize=(10, 10))  # Increase the figure size
+explode = (0.1, 0, 0,0)  # Explosion for the first slice
+labels = [f"{label} ({count:.0f})" for label, count in zip(bldg_type_percentage.index, bldg_type_scaled_count)]
+wedges, texts, autotexts = plt.pie(bldg_type_percentage, labels=labels, autopct='%.1f%%', startangle=140,
+                                   colors=colors, explode=explode, shadow=True)
+#plt.title('Percentage Distribution of Building Types (Scaled by 242)', fontsize=18, fontweight='bold')  # Bold title
+plt.axis('equal')  # Equal aspect ratio ensures the pie chart is circular
+
+# Increase the font size of pie chart labels and percentages
+for text in texts + autotexts:
+    text.set_fontsize(18)
+    text.set_fontweight('bold')  # Set font weight to bold for percentages
+
+# Display the pie chart
+plt.show()
+
+
+#Run only once
+# Replace 'bldg_type' labels
+bldg_type_mapping = {
+    'multifamily with 2-4 units': 'Low-Rise',
+    'multifamily with 5+ units, 1-3 stories': 'Low-Rise',
+    'multifamily with 5+ units, 4-7 stories': 'Mid-Rise',
+    'multifamily with 5+ units, 8+ stories': 'High-Rise'
+}
+
+data['bldg_type'] = data['bldg_type'].map(bldg_type_mapping)
+data['bldg_type'].unique()
+
+# Calculate the percentage distribution and scaled count of 'bldg_type'
+bldg_type_distribution = data['bldg_type'].value_counts()
+bldg_type_scaled_count = bldg_type_distribution * 242
+bldg_type_percentage = (bldg_type_scaled_count / bldg_type_scaled_count.sum()) * 100
+
+# Define a range of colors including shades of orange, blue, and gray
+colors = ['#FF6F00', '#FFA726', '#FFCC80', '#1976D2', '#64B5F6', '#B0BEC5', '#616161']
+
+# Create a pie chart with legend and explosion
+plt.figure(figsize=(10, 10))  # Increase the figure size
+explode = (0.1, 0, 0)  # Explosion for the first slice
+labels = [f"{label} ({count:.0f})" for label, count in zip(bldg_type_percentage.index, bldg_type_scaled_count)]
+wedges, texts, autotexts = plt.pie(bldg_type_percentage, labels=labels, autopct='%.1f%%', startangle=140,
+                                   colors=colors, explode=explode, shadow=True)
+#plt.title('Percentage Distribution of Building Types (Scaled by 242)', fontsize=18, fontweight='bold')  # Bold title
+plt.axis('equal')  # Equal aspect ratio ensures the pie chart is circular
+
+# Increase the font size of pie chart labels and percentages
+for text in texts + autotexts:
+    text.set_fontsize(18)
+    text.set_fontweight('bold')  # Set font weight to bold for percentages
+
+# Display the pie chart
+plt.show()
+
+
+# Calculate the percentage distribution and scaled count of 'bldg_type'
+bldg_type_distribution = data['wh_fuel'].value_counts()
+bldg_type_scaled_count = bldg_type_distribution * 242
+bldg_type_percentage = (bldg_type_scaled_count / bldg_type_scaled_count.sum()) * 100
+
+# Sort the percentages and get the indices of the two largest percentages
+sorted_indices = bldg_type_percentage.argsort()[::-1]
+top_indices = sorted_indices[:2]
+
+# Define a range of colors including shades of orange, blue, and gray
+colors = ['#FF6F00', '#FFA726',  '#1976D2', '#64B5F6', '#B0BEC5', '#616161']
+explode = (0.1, 0, 0)  # Explosion for the first slice
+# Create a pie chart with legend and explosion for the top two slices
+plt.figure(figsize=(10, 10))  # Increase the figure size
+wedges, texts, autotexts = plt.pie(bldg_type_percentage, autopct='%.1f%%', startangle=140,
+                                   colors=colors, explode = explode,shadow=True)
+plt.title('Percentage Distribution of Heating Fuel Types (Scaled by 242)', fontsize=18, fontweight='bold')
+plt.axis('equal')  # Equal aspect ratio ensures the pie chart is circular
+
+# Create a legend with custom labels based on 'heating_fuel' categories for the top two slices
+plt.legend(labels=bldg_type_percentage.index, loc='upper right', bbox_to_anchor=(1.24, 0.5),fontsize=16, title='Heating Fuel Type')
+
+# Increase the font size of pie chart labels and percentages for the top two slices
+for text in texts + autotexts:
+    text.set_fontsize(18)
+    text.set_fontweight('bold')  # Set font weight to bold for percentages
+
+# Display the pie chart
+plt.show()
+
+
+# Calculate the percentage distribution and scaled count of 'bldg_type'
+bldg_type_distribution = data['heating_fuel'].value_counts()
+bldg_type_scaled_count = bldg_type_distribution * 242
+bldg_type_percentage = (bldg_type_scaled_count / bldg_type_scaled_count.sum()) * 100
+
+# Sort the percentages and get the indices of the two largest percentages
+sorted_indices = bldg_type_percentage.argsort()[::-1]
+top_indices = sorted_indices[:2]
+
+# Define a range of colors including shades of orange, blue, and gray
+colors = ['#FF6F00', '#FFA726', '#FFCC80', '#1976D2', '#64B5F6', '#B0BEC5', '#616161']
+explode = (0.1, 0, 0,0,0,0)  # Explosion for the first slice
+# Create a pie chart with legend and explosion for the top two slices
+plt.figure(figsize=(10, 10))  # Increase the figure size
+wedges, texts, autotexts = plt.pie(bldg_type_percentage, startangle=140,
+                                   colors=colors, explode = explode,shadow=True)
+plt.title('Percentage Distribution of Heating Fuel Types (Scaled by 242)', fontsize=18, fontweight='bold')
+plt.axis('equal')  # Equal aspect ratio ensures the pie chart is circular
+
+# Create a legend with custom labels based on 'heating_fuel' categories for the top two slices
+plt.legend(labels=bldg_type_percentage.index, loc='upper right', bbox_to_anchor=(1.24, 0.5),fontsize=16, title='Heating Fuel Type')
+
+# Increase the font size of pie chart labels and percentages for the top two slices
+for text in texts + autotexts:
+    text.set_fontsize(18)
+    text.set_fontweight('bold')  # Set font weight to bold for percentages
+
+# Display the pie chart
+plt.show()
+
+
+data.loc[data['hvac_cooling_type'] == 'unknown', 'hvac_cooling_type'] = 'no ac'
+data['hvac_cooling_type'].unique()
+
+# Calculate the percentage distribution and scaled count of 'bldg_type'
+bldg_type_distribution = data['hvac_cooling_type'].value_counts()
+bldg_type_scaled_count = bldg_type_distribution * 242
+bldg_type_percentage = (bldg_type_scaled_count / bldg_type_scaled_count.sum()) * 100
+
+# Sort the percentages and get the indices of the two largest percentages
+sorted_indices = bldg_type_percentage.argsort()[::-1]
+top_indices = sorted_indices[:2]
+
+# Define a range of colors including shades of orange, blue, and gray
+colors = ['#FF6F00', '#FFA726',  '#1976D2', '#64B5F6', '#B0BEC5', '#616161']
+#explode = (0.1, 0, 0)  # Explosion for the first slice
+# Create a pie chart with legend and explosion for the top two slices
+plt.figure(figsize=(10, 10))  # Increase the figure size
+wedges, texts, autotexts = plt.pie(bldg_type_percentage, autopct='%.1f%%', startangle=140,
+                                   colors=colors, shadow=True)
+plt.title('Percentage Distribution of Heating Fuel Types (Scaled by 242)', fontsize=18, fontweight='bold')
+plt.axis('equal')  # Equal aspect ratio ensures the pie chart is circular
+
+# Create a legend with custom labels based on 'heating_fuel' categories for the top two slices
+plt.legend(labels=bldg_type_percentage.index, loc='upper right', bbox_to_anchor=(1.24, 0.5),fontsize=16, title='Heating Fuel Type')
+
+# Increase the font size of pie chart labels and percentages for the top two slices
+for text in texts + autotexts:
+    text.set_fontsize(18)
+    text.set_fontweight('bold')  # Set font weight to bold for percentages
+
+# Display the pie chart
+plt.show()
+
+# Drop rows where 'bldg_type' is 'multifamily with 2-4 units'
+data = data[data['bldg_type'] != 'multifamily with 2-4 units']
+data.shape
+
+# Create bar charts for categorical attributes
+categorical_attributes = ['vintage', 'wall_type', 'hvac_type_fuel', 'wh_type','wh_fuel','wh_in_unit','wh_type', 'ins_wall', 'heating_fuel']
+
+# Define warmer colors
+warm_colors = [ '#FF6F00', '#FFA726', '#FFCC80', '#1976D2', '#64B5F6', '#B0BEC5', '#616161']
+
+# Loop through each categorical attribute and create stacked bar charts
+for attribute in categorical_attributes:
+    plt.figure(figsize=(12, 8))
+    
+    # Calculate the count distribution and scale by 242
+    count_df = data.groupby(['bldg_type', attribute]).size().unstack() * 242
+    
+    # Plot the count distribution as a stacked bar chart using warmer colors
+    ax = count_df.plot(kind='bar', stacked=True, color=warm_colors)
+    
+    #plt.title(f'Building Type Distribution by {attribute.capitalize()}')
+    plt.xlabel('Building Type', fontsize=14)
+    plt.ylabel('MF Unit Count', fontsize=14)
+    plt.legend(title=attribute.capitalize(), loc='upper right', bbox_to_anchor=(1.35, 1), borderaxespad=0.,  fontsize=12)
+    plt.xticks(rotation=0, fontsize=12)
+    
+   
+    
+    # Save the plot as an image
+    plt.savefig(f'{attribute}_barplot.png', bbox_inches='tight')  # Save with a specific filename
+    
+    plt.show()
+
+# Loop through each categorical attribute and create stacked bar charts
+for attribute in categorical_attributes:
+    plt.figure(figsize=(10, 6))
+      
+    # Calculate the percentage distribution
+    percentage_df = (data.groupby(['bldg_type', attribute]).size() / data.groupby('bldg_type').size()).unstack()
+    
+    # Normalize the percentages to make sure they sum up to 100%
+    percentage_df = percentage_df.div(percentage_df.sum(axis=1), axis=0)
+    
+    # Plot the percentage distribution as a stacked bar chart
+    ax = percentage_df.plot(kind='bar', stacked=False)
+    
+    plt.title(f'Building Type Distribution by {attribute.capitalize()}')
+    plt.xlabel('Building Type')
+    plt.ylabel('Percentage')
+    plt.legend(title=attribute.capitalize(), loc='upper right', bbox_to_anchor=(1.25, 1), borderaxespad=0., fontsize='small')
+    plt.xticks(rotation=45)
+    
+    # Set y-axis ticks to percentage format
+    plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{int(x * 100)}%' if x > 0 else ''))
+    
+    # Add percentage labels on top of each bar
+    for p in ax.patches:
+        x = p.get_x() + p.get_width() / 2
+        y = p.get_y() + p.get_height() + 0.03  # Adjust the value for the white space
+        if p.get_height() > 0:
+            ax.annotate(f'{int(p.get_height() * 100)}%', (x, y), ha='center')
+    
+    # Set y-axis limits to ensure it goes up until 100%
+    plt.ylim(0, 1.1)  # Adjust the upper limit to create white space
+    
+    # Save the plot as an image
+    plt.savefig(f'{attribute}_barplot.png', bbox_inches='tight')  # Save with a specific filename
+    
+    plt.show()
+
